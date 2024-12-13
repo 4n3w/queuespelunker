@@ -163,7 +163,7 @@ Mirrored Queues:
     Mirrors: 2 (2 synchronized)
 ```
 
-The output above indicates it found four deprecated mirrored queues. 
+The output above indicates it found eight deprecated mirrored queues: four in the dev space in the test-org-alpha, and four in the qa space in the test-org-beta org.
 
     
 
