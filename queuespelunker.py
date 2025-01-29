@@ -203,75 +203,112 @@ def check_queue_mirroring(api_uri: str, vhost: str, username: str, password: str
         return []
 
 
+def get_current_target() -> Dict[str, str]:
+    """Get current org and space target"""
+    try:
+        target_output = run_command(['cf', 'target'])
+        org = ""
+        space = ""
+
+        for line in target_output.splitlines():
+            line = line.strip()
+            if line.startswith('org:'):
+                org = line.split(':', 1)[1].strip()
+            elif line.startswith('space:'):
+                space = line.split(':', 1)[1].strip()
+
+        return {'org': org, 'space': space}
+    except Exception as e:
+        print(f"Warning: Could not get current target: {e}")
+        return {'org': '', 'space': ''}
+
+
+def restore_target(target: Dict[str, str]):
+    """Restore org and space target"""
+    if target['org'] and target['space']:
+        try:
+            run_command(['cf', 'target', '-o', target['org'], '-s', target['space']])
+            print(f"\nRestored target to org: {target['org']}, space: {target['space']}")
+        except Exception as e:
+            print(f"Warning: Could not restore target: {e}")
+
+
 def main():
     if not check_cf_auth():
         sys.exit(1)
 
+    # Save current target
+    original_target = get_current_target()
     print("Analyzing RabbitMQ instances...")
 
-    instances = get_service_instances()
-    results = []
-    instances_without_admin_keys = []
-    total_instances = len(instances)
+    try:
+        instances = get_service_instances()
+        results = []
+        instances_without_admin_keys = []
+        total_instances = len(instances)
 
-    for instance in instances:
-        print(f"Checking instance: {instance['name']} in {instance['org_name']}/{instance['space_name']}")
-        try:
-            credentials = get_instance_credentials(instance['guid'], instance['org_name'], instance['space_name'])
+        for instance in instances:
+            print(f"Checking instance: {instance['name']} in {instance['org_name']}/{instance['space_name']}")
+            try:
+                credentials = get_instance_credentials(instance['guid'], instance['org_name'], instance['space_name'])
 
-            if credentials.get("error") == "no_service_keys":
-                print(f"No service keys available for {instance['name']}")
-                instances_without_admin_keys.append(instance)
+                if credentials.get("error") == "no_service_keys":
+                    print(f"No service keys available for {instance['name']}")
+                    instances_without_admin_keys.append(instance)
+                    continue
+
+                if not credentials:
+                    print(f"No credentials found for {instance['name']}")
+                    continue
+
+                api_uri = credentials.get('http_api_uri')
+                username = credentials.get('username')
+                password = credentials.get('password')
+                vhost = credentials.get('vhost')
+
+                if not all([api_uri, username, password, vhost]):
+                    print(f"Missing required credential information for {instance['name']}")
+                    continue
+
+                mirrored_queues = check_queue_mirroring(api_uri, vhost, username, password)
+
+                if mirrored_queues:
+                    results.append({
+                        'service_instance': instance['name'],
+                        'organization': instance['org_name'],
+                        'space': instance['space_name'],
+                        'mirrored_queues': mirrored_queues
+                    })
+            except Exception as e:
+                print(f"Error processing instance {instance['name']}: {e}")
                 continue
 
-            if not credentials:
-                print(f"No credentials found for {instance['name']}")
-                continue
+        if results:
+            print("\nFound instances using classic queue mirroring:")
+            print(json.dumps(results, indent=2))
+            print("\nSummary:")
+            for result in results:
+                print(f"\nInstance: {result['service_instance']} in {result['organization']}/{result['space']}")
+                print("Mirrored Queues:")
+                for queue in result['mirrored_queues']:
+                    print(f"  - Queue: {queue['name']}")
+                    print(f"    Policy: {queue['policy']}")
+                    print(f"    Mirrors: {queue['mirrors']} ({queue['synchronized_mirrors']} synchronized)")
+        else:
+            print("\nNo instances found using classic queue mirroring")
 
-            api_uri = credentials.get('http_api_uri')
-            username = credentials.get('username')
-            password = credentials.get('password')
-            vhost = credentials.get('vhost')
+        print(f"\nTotal instances processed: {total_instances}")
+        print(f"Instances with mirrored queues: {len(results)}")
+        print(f"Instances without service keys: {len(instances_without_admin_keys)}")
 
-            if not all([api_uri, username, password, vhost]):
-                print(f"Missing required credential information for {instance['name']}")
-                continue
+        if instances_without_admin_keys:
+            print("\nInstances without admin keys:")
+            for instance in instances_without_admin_keys:
+                print(f"  - {instance['name']} in {instance['org_name']}/{instance['space_name']}")
 
-            mirrored_queues = check_queue_mirroring(api_uri, vhost, username, password)
-
-            if mirrored_queues:
-                results.append({
-                    'service_instance': instance['name'],
-                    'organization': instance['org_name'],
-                    'space': instance['space_name'],
-                    'mirrored_queues': mirrored_queues
-                })
-        except Exception as e:
-            print(f"Error processing instance {instance['name']}: {e}")
-            continue
-
-    if results:
-        print("\nFound instances using classic queue mirroring:")
-        print(json.dumps(results, indent=2))
-        print("\nSummary:")
-        for result in results:
-            print(f"\nInstance: {result['service_instance']} in {result['organization']}/{result['space']}")
-            print("Mirrored Queues:")
-            for queue in result['mirrored_queues']:
-                print(f"  - Queue: {queue['name']}")
-                print(f"    Policy: {queue['policy']}")
-                print(f"    Mirrors: {queue['mirrors']} ({queue['synchronized_mirrors']} synchronized)")
-    else:
-        print("\nNo instances found using classic queue mirroring")
-
-    print(f"\nTotal instances processed: {total_instances}")
-    print(f"Instances with mirrored queues: {len(results)}")
-    print(f"Instances without service keys: {len(instances_without_admin_keys)}")
-
-    if instances_without_admin_keys:
-        print("\nInstances without admin keys:")
-        for instance in instances_without_admin_keys:
-            print(f"  - {instance['name']} in {instance['org_name']}/{instance['space_name']}")
+    finally:
+        # Restore original target
+        restore_target(original_target)
 
 
 if __name__ == '__main__':
