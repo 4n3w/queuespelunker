@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source colors.sh
+source colours.sh
 
 echo_step() {
   echo -e "${BLUE}==> $1${NC}"
@@ -76,7 +76,7 @@ echo_step "Creating RabbitMQ service instances..."
 
 # Alpha Org - Deprecated Mirrored Queues
 cf target -o "test-org-alpha" -s "dev"
-#create_service_and_wait "rabbitmq-alpha-dev"
+create_service_and_wait "rabbitmq-alpha-dev"
 
 
 CREDS=$(cf service-key rabbitmq-alpha-dev admin-key | awk 'NR>2')
@@ -99,7 +99,7 @@ curl -u "$USERNAME:$PASSWORD" "$API_URL/policies/%2f/ha-policy" \
 
 # Org Beta - With deprecated mirrored queues but different pattern
 cf target -o "test-org-beta" -s "qa"
-#create_service_and_wait "rabbitmq-beta-qa"
+create_service_and_wait "rabbitmq-beta-qa"
 
 CREDS=$(cf service-key rabbitmq-beta-qa admin-key | awk 'NR>2')
 API_URL=$(echo "$CREDS" | jq -r '.dashboard_url | sub("/#/"; "/api/")')

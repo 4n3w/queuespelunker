@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-source colors.sh
+source colours.sh
 
 echo -e "${BLUE}==> Getting service key...${NC}"
 CREDS=$(cf service-key rabbitmq-beta-qa admin-key | awk 'NR>2')
